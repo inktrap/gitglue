@@ -28,3 +28,11 @@ There is plenty of stuff to do:
  - mount, decrypt, … (because an encrypted repo would defeat the purpose, an encrypted filesystem is better, i.e. truecrypt on usb, nfs, encfs on a remote …)
  - operators (and +, not -) for -et (nice to have!)
 
+Known bugs
+----------
+
+When your commit message is one word long (a word is something that is not seperated by a whitespace) and contains a character that must be escaped (i.e.: ') or part of a string when used in a shell, double quotes are not sufficient. You need to escape the double quotes, else they will be stripped by your shell:
+
+`gitglue -et foo -am \"foo'bar\"` would work.
+
+Because it is bad practice to use such characters and your commit messages should be longer anyway I won't fix this. Fixing this bug means parsing git's cli-args: That would add unnecessary complexity.
