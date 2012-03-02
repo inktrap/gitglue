@@ -304,6 +304,7 @@ def cmd_parse(cmd, you_called):
             if re.search(r" ", do) and not re.match(r"(^\".*\"$)|(^\'.*\'$)", do):
                 new = "\"%s\"" % (do)
                 cmd[cmd.index(do)] = new
+        cmd.insert(0, dvcs_name)
 
     return(interim)
 
@@ -319,14 +320,13 @@ def execute_cmd(cmd, repo_path):
             message=chdir_error % (repo_path)
             error_handler(message)
         for do in cmd:
-            do.insert(0, dvcs_name)
             try:
                 status = subprocess.check_output(do, shell=False)
             except:
-                message = git_error % (args, return_value)
+                message = git_error % (arg, return_value)
                 error_handler(message)
-            do = ' '.join(do)
-            message = "  - Executed %s in %s" % (do, repo_path)
+            error = ' '.join(arg)
+            message = "  - Executed %s in %s" % (error, repo_path)
             verbose(message)
             output_handler(status)
 
