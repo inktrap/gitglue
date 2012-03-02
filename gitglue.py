@@ -323,7 +323,7 @@ def execute_cmd(cmd, repo_path):
             try:
                 status = subprocess.check_output(do, shell=False)
             except:
-                message = git_error % (arg, return_value)
+                message = git_error % (do, return_value)
                 error_handler(message)
             error = ' '.join(arg)
             message = "  - Executed %s in %s" % (error, repo_path)
