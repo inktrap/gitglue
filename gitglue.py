@@ -99,13 +99,15 @@ def usage():
      -et --exectag TAG CMD  Execute a command within all repos tagged with TAG. Currently only one TAG possible.
      -ea --execappend CMD   Only usable after -e or -et. Append a command and execute it. Can be specifed often.
 
-     -a --addtag TAG REPOS   Add a tag to one or more repos.
-     -d --deltag TAG REPOS   Delete a tag from one or more repos.
+     -a --addtag TAG REPOS  Add a tag to one or more repos. Trailing slashes will be removed from the name.
+     -d --deltag TAG REPOS  Delete a tag from one or more repos.
      -l --listtags          List all tags.
+     -c --clean             Only keep repos with a valid (accessible) path.
 
      -ar --addrepo REPO PATH TAGS     Add one or multiple repos. Seperate REPO PATH TAGS sequences with commas.
      -dr --delrepo REPOS     Same like addrepo but deletes. Seperate multiple REPOS with spaces.
      -lr --listrepos (REPOS) Lists name, tag(s) and path from all repos, or from matching and existing REPOS.
+     -ad --adddir TAGS Add repos from the current directory and tag them with TAGS.
 
      -h --help         Display this help message.
      -f --force        Overwrite while adding a repo or while creating the repo file.
@@ -180,15 +182,17 @@ def add_repo(repo_name, repo_path, repo_tags):
         message = noadd_warning % (repo_name, repo_path)
         warning_handler(message)
     else:
+        repo_path = strip_slash(repo_path)
+        repo_name = strip_slash(repo_name)
         repos_dict[repo_name] = {'path':repo_path, 'tags':repo_tags, 'pre':pre_hook, 'post':post_hook}
-    repo_tags = ' '.join(repo_tags)
+    try:
+        repo_tags = ' '.join(repo_tags)
+    except:
+        repo_tags = ''
     verbose("  - adding " + repo_name + " from: " + repo_path + " with Tags: " + repo_tags)
 
 
-def init():
-    global arg_force
-    global repos_dict
-
+def pre_init(repo_path):
     if os.path.exists(repo_file):
         if arg_force == False:
             message = exists_error % (repo_file)
@@ -200,16 +204,19 @@ def init():
                 message = nodel_warning % (repo_file)
                 warning_handler(message)
 
-    #read dir and search for repos
-    verbose(" - searching for repos in " + home_dir)
-    repos_dict = {}
+def init(dirname, repo_tags):
+    global arg_force
+    global repos_dict
 
-    for root, dirs, files in os.walk(home_dir, topdown=True):
+    #read dir and search for repos
+    verbose(" - searching for repos in " + dirname)
+
+    for root, dirs, files in os.walk(dirname, topdown=True):
         for dirname in dirs:
             if dirname == dvcs_dir:
                 repo_name = os.path.basename(root)
                 repo_path = root
-                repo_tags = pre_hook = post_hook = []
+                pre_hook = post_hook = []
                 add_repo(repo_name, repo_path, repo_tags)
 
 
@@ -382,6 +389,7 @@ def parse_args():
     global arg_force
     global arg_git
     global arg_short
+    global home_dir
 
     # removing the script name or similar stuff
     sys.argv.pop(0)
@@ -406,7 +414,9 @@ def parse_args():
         if arg == "-i" or arg == "--init":
             you_called = '-i or --init'
             check_lastarg(index_one, you_called)
-            init()
+            repos_dict = {}
+            pre_init(repo_file)
+            init(home_dir, None)
             write_json()
 
         elif arg == "-h" or arg == "--help":
@@ -475,6 +485,10 @@ def parse_args():
             list_tags()
             exit_handler()
 
+        elif arg == "-c" or arg == "--clean":
+            clean_repos()
+            write_json()
+
         elif arg == "-ar" or arg == "--addrepos":
             you_called = '-ar --addrepos'
             repos = check_assignrest(index_one, you_called, 'REPOS')
@@ -493,6 +507,12 @@ def parse_args():
             you_called = '-dr --delrepos'
             repos = check_assignrest(index_one, you_called, 'REPOS')
             del_repos(repos)
+            write_json()
+
+        elif arg == "-ad" or arg == "--adddir":
+            tags = list(sys.argv[index_one:])
+            dirname = os.getcwd()
+            init(dirname, tags)
             write_json()
 
         elif arg == "-lr" or arg == "--listrepos":
@@ -515,6 +535,21 @@ def get_tags():
     return list(tags)
 
 
+def clean_repos():
+    global repos_dict
+    interim = []
+
+    for repo in repos_dict:
+        repo_path = repos_dict[repo]["path"]
+        if not os.path.exists(repo_path):
+            interim.append(repo)
+
+    del_repos(interim)
+
+def strip_slash(string):
+    result = re.sub(r"/$",'',string)
+    return result
+
 # list all tags, so you can use the right one
 def list_tags():
     tags = get_tags()
@@ -532,7 +567,7 @@ def add_repos(repos):
     # parse cli subargs:
     for newrepo in repos:
         try:
-            repo_name = newrepo[0]
+            repo_name = strip_slash(newrepo[0])
             if len(repo_name) < 1:
                 raise Exception()
         except:
@@ -602,7 +637,7 @@ def del_repos(repos):
         for i in interim:
             try:
                 del repos_dict[i]
-                message = "  - removing %s " % (repo)
+                message = "  - removing %s " % (i)
                 verbose(message)
             except:
                 message = cantdel_warning % (i)
