@@ -13,6 +13,7 @@ repo_file = home_dir + "/.gitglue_repos.json"
 dvcs_name = "git"
 dvcs_dir = "." + dvcs_name
 start_dir = os.getcwd()
+placeholder = ["REPOS"]
 
 # warnings:
 exists_warning = "%s already exists"
@@ -316,7 +317,7 @@ def cmd_parse(cmd, you_called):
     return(interim)
 
 
-def execute_cmd(cmd, repo_path):
+def execute_cmd(cmd, repo_path, repo_name):
     if not os.path.exists(repo_path):
         message=nodir_warning % (repo_path)
         warning_handler(message)
@@ -326,7 +327,11 @@ def execute_cmd(cmd, repo_path):
         except:
             message=chdir_error % (repo_path)
             error_handler(message)
-        for do in cmd:
+        for sublist in cmd:
+            do=[]
+            for el in sublist:
+                new=re.sub('REPO', repo_name, el)
+                do.append(new)
             try:
                 status = subprocess.check_output(do, shell=False)
             except:
@@ -345,14 +350,15 @@ def action(cmd, tag):
 
     for repo in repos_dict:
         repo_path = repos_dict[repo]["path"]
+        repo_name = repo
         if tag:
             try:
                 repos_dict[repo]["tags"].index(tag)
-                execute_cmd(cmd, repo_path)
+                execute_cmd(cmd, repo_path, repo_name)
             except:
                 pass
         else:
-            execute_cmd(cmd, repo_path)
+            execute_cmd(cmd, repo_path, repo_name)
     exit_handler()
 
 
@@ -547,7 +553,7 @@ def clean_repos():
     del_repos(interim)
 
 def strip_slash(string):
-    result = re.sub(r"/$",'',string)
+    result = re.sub(r"/+$",'',string)
     return result
 
 # list all tags, so you can use the right one
