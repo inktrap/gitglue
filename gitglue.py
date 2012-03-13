@@ -193,19 +193,7 @@ def add_repo(repo_name, repo_path, repo_tags):
     verbose("  - adding " + repo_name + " from: " + repo_path + " with Tags: " + repo_tags)
 
 
-def pre_init(repo_path):
-    if os.path.exists(repo_file):
-        if arg_force == False:
-            message = exists_error % (repo_file)
-            error_handler(message)
-        else:
-            try:
-                os.remove(repo_file)
-            except:
-                message = nodel_warning % (repo_file)
-                warning_handler(message)
-
-def init(dirname, repo_tags):
+def init_dir(dirname, repo_tags):
     global arg_force
     global repos_dict
 
@@ -421,8 +409,19 @@ def parse_args():
             you_called = '-i or --init'
             check_lastarg(index_one, you_called)
             repos_dict = {}
-            pre_init(repo_file)
-            init(home_dir, None)
+
+            if os.path.exists(repo_file):
+                if arg_force == False:
+                    message = exists_error % (repo_file)
+                    error_handler(message)
+                else:
+                    try:
+                        os.remove(repo_file)
+                    except:
+                        message = nodel_warning % (repo_file)
+                        warning_handler(message)
+
+            init_dir(home_dir, None)
             write_json()
 
         elif arg == "-h" or arg == "--help":
@@ -518,7 +517,7 @@ def parse_args():
         elif arg == "-ad" or arg == "--adddir":
             tags = list(sys.argv[index_one:])
             dirname = os.getcwd()
-            init(dirname, tags)
+            init_dir(dirname, tags)
             write_json()
 
         elif arg == "-lr" or arg == "--listrepos":
