@@ -13,7 +13,7 @@ repo_file = home_dir + "/.gitglue_repos.json"
 dvcs_name = "git"
 dvcs_dir = "." + dvcs_name
 start_dir = os.getcwd()
-placeholder = ["REPOS"]
+placeholder = ["REPO", "PATH"]
 
 # warnings:
 exists_warning = "%s already exists"
@@ -26,6 +26,7 @@ nodir_warning = "Does the directory %s exist?"
 nodel_warning = "Can't find %s. Is it spelled right?"
 cantdel_warning = "Can't delete %s, check permissions?"
 json_warning = "%s seems empty"
+file_warning = "Can't open %s for %s. Creating it."
 
 # errors:
 chdir_error = chdir_warning
@@ -42,7 +43,7 @@ nopath_error = "%s is not a valid path, does it exist?"
 noopt_error = "%s is not an option. Check -h or --help"
 json_error = "%s is not valid json"
 relpath_error = "%s seems to be a relative path. You can use ~/, but absolute paths are necessary."
-git_error = "%s says %s. Is this a valid command?"
+git_error = "\"%s\" returned an error. Aborting. Is this a valid command?"
 
 # cli flags:
 arg_force = False
@@ -63,12 +64,11 @@ def output_handler(output):
         return
     elif arg_git == True:
         print output
-        return
     elif arg_short == True:
         output = output.split("\n")
         try:
             print output[0]
-            #print output[1]
+            print output[1]
         except:
             try:
                 print output[0]
@@ -116,7 +116,6 @@ def usage():
      -v --verbose      Explain everything.
      -q --quiet        Suppress WARNINGs.
      -g --git          Print output from git or your dvcs. Overwrites default -s.
-     -s --short        Prints the first two lines. Enabled by default, specify to disable.
      '''
     print message
 
@@ -141,8 +140,9 @@ def read_repos():
         repos_json = fh.read()
         fh.close()
     except:
-        message = file_error % (repo_file, "reading")
-        error_handler(message)
+        message = file_warning % (repo_file, "reading")
+        warning_handler(message)
+        repos_json = ''
 
     if not re.search(r"{", repos_json):
         message = json_warning % (repo_file)
@@ -154,6 +154,15 @@ def read_repos():
         except ValueError:
             message = json_error % (repo_file)
             error_handler(message)
+
+    # substitute the relative path with the actual home_dir
+
+    for repo in repos:
+        try:
+            repos[repo]['path'] = re.sub(r"^~", home_dir, repos[repo]["path"])
+        except:
+            pass
+
     return repos
 
 def make_json(repos):
@@ -175,16 +184,59 @@ def write_json():
     exit_handler()
 
 
+def min_length(name, field):
+    try:
+        if len(name) < 1:
+            raise Exception()
+    except:
+        message = addrepo_error % (field)
+        error_handler(message)
+
+
+def path_check(repo_path):
+    min_length(repo_path, 'path')
+
+    # perform some checks:
+    if not os.path.exists(repo_path):
+        message = nopath_error % (repo_path)
+        error_handler(message)
+
+    if not os.path.exists(repo_path + "/" + dvcs_dir):
+        message = norepo_error % (repo_path)
+        error_handler(message)
+
+    if re.search(r"^[^\/~]|\/\.\/|\.\.", repo_path):
+        # must start with a slash or ~:
+        # ^[^\/~]
+        #
+        # dot between slashes is forbidden:
+        # \/\.\/
+        #
+        # two consecutive dots are forbidden:
+        # \.\.
+        #
+        message = relpath_error % (repo_path)
+        error_handler(message)
+
+
 def add_repo(repo_name, repo_path, repo_tags):
     global repos_dict
-
     pre_hook = post_hook = None
+
+    repo_name = strip_slash(repo_name)
+    repo_path = strip_slash(repo_path)
+
+    min_length(repo_name, 'name')
+    path_check(repo_path)
+
+    # get the relative path if the absolute path was used.
+    home_reg = "^%s" % (home_dir)
+    repo_path = re.sub(home_reg, "~", repo_path)
+
     if repo_name in repos_dict and arg_force == False:
         message = noadd_warning % (repo_name, repo_path)
         warning_handler(message)
     else:
-        repo_path = strip_slash(repo_path)
-        repo_name = strip_slash(repo_name)
         repos_dict[repo_name] = {'path':repo_path, 'tags':repo_tags, 'pre':pre_hook, 'post':post_hook}
     try:
         repo_tags = ' '.join(repo_tags)
@@ -205,7 +257,6 @@ def init_dir(dirname, repo_tags):
             if dirname == dvcs_dir:
                 repo_name = os.path.basename(root)
                 repo_path = root
-                pre_hook = post_hook = []
                 add_repo(repo_name, repo_path, repo_tags)
 
 
@@ -319,12 +370,13 @@ def execute_cmd(cmd, repo_path, repo_name):
             do=[]
             for el in sublist:
                 new=re.sub('REPO', repo_name, el)
+                new=re.sub('PATH', repo_path, el)
                 do.append(new)
             try:
                 status = subprocess.check_output(do, shell=False)
-            except:
+            except subprocess.CalledProcessError:
                 do = ' '.join(do)
-                message = git_error % (do, return_value)
+                message = git_error % (do)
                 error_handler(message)
             done = ' '.join(do)
             message = "  - Executed %s in %s" % (done, repo_path)
@@ -441,12 +493,6 @@ def parse_args():
             continue
         elif arg == "-g" or arg == "--git":
             arg_git = True
-            continue
-        elif arg == "-s" or arg == "--short":
-            if arg_short == False:
-                arg_short == True
-            else:
-                arg_short == False
             continue
 
         # repos are needed now and this file should exist:
@@ -572,7 +618,7 @@ def add_repos(repos):
     # parse cli subargs:
     for newrepo in repos:
         try:
-            repo_name = strip_slash(newrepo[0])
+            repo_name = newrepo[0]
             if len(repo_name) < 1:
                 raise Exception()
         except:
@@ -588,34 +634,6 @@ def add_repos(repos):
         if len(newrepo) > 2:
             repo_tags = newrepo[2:]
         else: repo_tags = None
-
-        # perform some checks:
-        if not os.path.exists(repo_path):
-            message = nopath_error % (repo_path)
-            error_handler(message)
-
-        if not re.match("/$", repo_path):
-            repo_path = repo_path + "/"
-
-        if not os.path.exists(repo_path + dvcs_dir):
-            message = norepo_error % (repo_path)
-            error_handler(message)
-
-        # get the absolute path if ~/ was used. Else: error.
-        repo_path = re.sub(r"^~", home_dir, repo_path)
-
-        if re.search(r"^[^\/]|\/\.\/|\.\.\/", repo_path):
-            # must start with a slash:
-            # ^[^\/]
-            #
-            # dot between slashes is forbidden:
-            # \/\.\/
-            #
-            # two consecutive dots before a slash are forbidden:
-            # \.\.\/
-            #
-            message = relpath_error % (repo_path)
-            error_handler(message)
 
         # and finally add the new repo:
         if repo_name in repos_dict:
