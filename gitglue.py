@@ -14,6 +14,7 @@ dvcs_name = "git"
 dvcs_dir = "." + dvcs_name
 start_dir = os.getcwd()
 placeholder = ["REPO", "PATH"]
+gitglue_output = "GITGLUE TELLS YOU: "
 
 # warnings:
 exists_warning = "%s already exists"
@@ -43,7 +44,7 @@ nopath_error = "%s is not a valid path, does it exist?"
 noopt_error = "%s is not an option. Check -h or --help"
 json_error = "%s is not valid json"
 relpath_error = "%s seems to be a relative path. You can use ~/, but absolute paths are necessary."
-git_error = "\"%s\" returned an error. Aborting. Is this a valid command?"
+git_error = "\"%s\" exited with error status %s. Aborting. Is this a valid command?"
 
 # cli flags:
 arg_force = False
@@ -60,10 +61,10 @@ def output_handler(output):
     global arg_git
     global arg_short
 
-    if arg_quiet == True:
-        return
-    elif arg_git == True:
+    if arg_git == True:
         print output
+    elif arg_quiet == True:
+        return
     elif arg_short == True:
         output = output.split("\n")
         try:
@@ -74,7 +75,6 @@ def output_handler(output):
                 print output[0]
             except:
                 pass
-    print
 
 
 def exit_handler():
@@ -82,13 +82,13 @@ def exit_handler():
 
     # cleaner? 
     os.chdir(start_dir)
-    exit(0)
+    sys.exit(0)
 
 
 def error_handler(message):
     if message:
-        print "  - ERROR: " + message
-    exit_handler()
+        print gitglue_output + "ERROR – " + message
+    sys.exit(1)
 
 
 def usage():
@@ -124,14 +124,14 @@ def warning_handler(message):
     global arg_quiet
 
     if arg_quiet == False:
-        print " - WARNING: " + message
+        print gitglue_output +  "WARNING – " + message
 
 
 def verbose(message):
     global arg_verbose
 
     if arg_verbose:
-        print message
+        print gitglue_output + message
 
 
 def read_repos():
@@ -242,7 +242,7 @@ def add_repo(repo_name, repo_path, repo_tags):
         repo_tags = ' '.join(repo_tags)
     except:
         repo_tags = ''
-    verbose("  - adding " + repo_name + " from: " + repo_path + " with Tags: " + repo_tags)
+    verbose("adding " + repo_name + " from: " + repo_path + " with Tags: " + repo_tags)
 
 
 def init_dir(dirname, repo_tags):
@@ -250,7 +250,7 @@ def init_dir(dirname, repo_tags):
     global repos_dict
 
     #read dir and search for repos
-    verbose(" - searching for repos in " + dirname)
+    verbose("searching for repos in " + dirname)
 
     for root, dirs, files in os.walk(dirname, topdown=True):
         for dirname in dirs:
@@ -264,7 +264,7 @@ def init_dir(dirname, repo_tags):
 def add_tag(tag, repos):
     global repos_dict
 
-    verbose(" - tagging repos")
+    verbose("tagging repos")
     for repo in repos:
         if repo in repos_dict:
             try:
@@ -273,7 +273,7 @@ def add_tag(tag, repos):
                 warning_handler(message)
             except:
                 repos_dict[repo]["tags"].append(tag)
-                verbose("  - " + repo + " is now tagged with " + tag)
+                verbose(repo + " is now tagged with " + tag)
         else:
             message = norepo_warning % (repo)
             warning_handler(message)
@@ -283,12 +283,12 @@ def add_tag(tag, repos):
 def del_tag(tag, repos):
     global repos_dict
 
-    verbose(" - untagging repos")
+    verbose("untagging repos")
     for repo in repos:
         if repo in repos_dict:
             try:
                 repos_dict[repo]["tags"].remove(tag) # try to remove, if there is none, print a warning
-                verbose("  - " + repo + " is not tagged with " + tag + " anymore")
+                verbose(repo + " is not tagged with " + tag + " anymore")
             except:
                 message = notag_warning % (repo,tag)
                 warning_handler(message)
@@ -370,18 +370,22 @@ def execute_cmd(cmd, repo_path, repo_name):
             do=[]
             for el in sublist:
                 new=re.sub('REPO', repo_name, el)
-                new=re.sub('PATH', repo_path, el)
+                new=re.sub('PATH', repo_path, new)
                 do.append(new)
-            try:
-                status = subprocess.check_output(do, shell=False)
-            except subprocess.CalledProcessError:
-                do = ' '.join(do)
-                message = git_error % (do)
+            p = subprocess.Popen(do, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=False)
+            p.wait()
+            stdout_value, stderr_value = p.communicate()
+            do = ' '.join(do)
+            if p.returncode:
+                global arg_git
+                arg_git = True
+                print '\n'
+                output_handler(stderr_value)
+                message = git_error % (do, p.returncode)
                 error_handler(message)
-            done = ' '.join(do)
-            message = "  - Executed %s in %s" % (done, repo_path)
+            output_handler(stdout_value)
+            message = "Executed %s in %s" % (do, repo_path)
             verbose(message)
-            output_handler(status)
 
 
 # execute the action defined by rest for all repos
@@ -660,7 +664,7 @@ def del_repos(repos):
         for i in interim:
             try:
                 del repos_dict[i]
-                message = "  - removing %s " % (i)
+                message = "removing %s " % (i)
                 verbose(message)
             except:
                 message = cantdel_warning % (i)
