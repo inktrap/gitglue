@@ -9,7 +9,7 @@ import subprocess
 
 # define dirs, files and names:
 home_dir = os.environ['HOME']
-repo_file = home_dir + "/.gitglue_repos.json"
+repo_file = home_dir + "/.gitglue_repos_" + os.environ['USER'] + ".json"
 dvcs_name = "git"
 dvcs_dir = "." + dvcs_name
 start_dir = os.getcwd()
@@ -45,6 +45,7 @@ noopt_error = "%s is not an option. Check -h or --help"
 json_error = "%s is not valid json"
 relpath_error = "%s seems to be a relative path. You can use ~/, but absolute paths are necessary."
 git_error = "\"%s\" exited with error status %s. Aborting. Is this a valid command?"
+nolinux_error = "Can't determine home_dir. Linux only. Problem?! ;)"
 
 # cli flags:
 arg_force = False
@@ -55,6 +56,10 @@ arg_nohook = False
 arg_short = True
 
 #TODO: specfify more than one tag, and use -a and -n as 'and' and 'not'.
+
+if not home_dir:
+    error_handler(nolinux_error)
+    sys.exit(1)
 
 def output_handler(output):
     global arg_quiet
@@ -87,7 +92,7 @@ def exit_handler():
 
 def error_handler(message):
     if message:
-        print gitglue_output + "ERROR – " + message
+        print gitglue_output + u"ERROR – " + message
     sys.exit(1)
 
 
@@ -95,13 +100,12 @@ def usage():
     message='''USAGE: gitglue ( -OPTION | --OPTION ) ( ARGUMENT )
 
     OPTIONS:
-     -i --init              Create a json file with all repos and warn if a repo exists. -f -i deletes the repofile.
      -e --execute CMD       Execute the following CMD as a command to all repos.
      -et --exectag TAG CMD  Execute a command within all repos tagged with TAG. Currently only one TAG possible.
      -ea --execappend CMD   Only usable after -e or -et. Append a command and execute it. Can be specifed often.
 
-     -a --addtag TAG REPOS  Add a tag to one or more repos. Trailing slashes will be removed from the name.
-     -d --deltag TAG REPOS  Delete a tag from one or more repos.
+     -a --addtag REPO TAGS  Add many tags to a repo. Trailing slashes will be removed from the name.
+     -d --deltag TAG REPOS  Delete tag(s) from a repo.
      -l --listtags          List all tags.
      -c --clean             Only keep repos with a valid (accessible) path.
 
@@ -124,7 +128,7 @@ def warning_handler(message):
     global arg_quiet
 
     if arg_quiet == False:
-        print gitglue_output +  "WARNING – " + message
+        print gitglue_output +  u"WARNING – " + message
 
 
 def verbose(message):
@@ -172,6 +176,11 @@ def make_json(repos):
 
 def write_json():
     global repos_dict
+
+    for repo in repos_dict.itervalues():
+        # get the relative path if the absolute path was used.
+        home_reg = "^%s" % (home_dir)
+        repo["path"] = re.sub(home_reg, "~", repo["path"])
 
     repos_json = make_json(repos_dict)
     try:
@@ -221,7 +230,6 @@ def path_check(repo_path):
 
 def add_repo(repo_name, repo_path, repo_tags):
     global repos_dict
-    pre_hook = post_hook = None
 
     repo_name = strip_slash(repo_name)
     repo_path = strip_slash(repo_path)
@@ -229,15 +237,11 @@ def add_repo(repo_name, repo_path, repo_tags):
     min_length(repo_name, 'name')
     path_check(repo_path)
 
-    # get the relative path if the absolute path was used.
-    home_reg = "^%s" % (home_dir)
-    repo_path = re.sub(home_reg, "~", repo_path)
-
     if repo_name in repos_dict and arg_force == False:
         message = noadd_warning % (repo_name, repo_path)
         warning_handler(message)
     else:
-        repos_dict[repo_name] = {'path':repo_path, 'tags':repo_tags, 'pre':pre_hook, 'post':post_hook}
+        repos_dict[repo_name] = {'path':repo_path, 'tags':repo_tags}
     try:
         repo_tags = ' '.join(repo_tags)
     except:
@@ -423,7 +427,7 @@ def check_assignnext(index, you_called, missing):
 
 
 def check_assignrest(index, you_called, missing):
-    rest = list(sys.argv[index:])
+    rest = sys.argv[index:]
     if len(rest) == 0:
         message = missingarg_error % (you_called, missing)
         error_handler(message)
@@ -461,26 +465,7 @@ def parse_args():
         index_one = index + 1
         index_two = index_one + 1
 
-        if arg == "-i" or arg == "--init":
-            you_called = '-i or --init'
-            check_lastarg(index_one, you_called)
-            repos_dict = {}
-
-            if os.path.exists(repo_file):
-                if arg_force == False:
-                    message = exists_error % (repo_file)
-                    error_handler(message)
-                else:
-                    try:
-                        os.remove(repo_file)
-                    except:
-                        message = nodel_warning % (repo_file)
-                        warning_handler(message)
-
-            init_dir(home_dir, None)
-            write_json()
-
-        elif arg == "-h" or arg == "--help":
+        if arg == "-h" or arg == "--help":
             usage()
             exit_handler()
         elif arg == "-f" or arg == "--force":
@@ -505,7 +490,7 @@ def parse_args():
         if arg == "-et" or arg == "--exectag":
             you_called = '-et or --exectag'
             tag = check_assignnext(index_one, you_called, 'TAG')
-            tags = get_tags()
+            tags = get_tagged(None).keys()
             try:
                 tags.index(tag)
             except:
@@ -537,7 +522,11 @@ def parse_args():
             write_json()
 
         elif arg == "-l" or arg == "--listtags":
-            list_tags()
+            tags = sys.argv[index_one:]
+            if len(tags) == 0:
+                tags = None
+            tags = get_tagged(tags)
+            list_tags(tags)
             exit_handler()
 
         elif arg == "-c" or arg == "--clean":
@@ -565,13 +554,13 @@ def parse_args():
             write_json()
 
         elif arg == "-ad" or arg == "--adddir":
-            tags = list(sys.argv[index_one:])
+            tags = sys.argv[index_one:]
             dirname = os.getcwd()
             init_dir(dirname, tags)
             write_json()
 
         elif arg == "-lr" or arg == "--listrepos":
-            repo = list(sys.argv[index_one:])
+            repo = sys.argv[index_one:]
             list_repos(repo)
             exit_handler()
 
@@ -579,15 +568,20 @@ def parse_args():
             message = noopt_error % (arg)
             error_handler(message)
 
-# helper function, returns a list of the currently used tags
-def get_tags():
+
+def get_tagged(tagname):
     global repos_dict
 
     tags = {}
     for repo in repos_dict:
         for tag in repos_dict[repo]["tags"]:
-            tags[tag] = None
-    return list(tags)
+            if (tagname and tag in tagname) or not tagname:
+                try:
+                    tags[tag]
+                except:
+                    tags[tag] = []
+                tags[tag].append(repo)
+    return tags
 
 
 def clean_repos():
@@ -605,13 +599,15 @@ def strip_slash(string):
     result = re.sub(r"/+$",'',string)
     return result
 
-# list all tags, so you can use the right one
-def list_tags():
-    tags = get_tags()
-    print "Tags:",
+
+# list all tags and the repos that use them:
+def list_tags(tags):
+    print "TAG:\tREPOS:"
     for tag in tags:
-        print tag,
-    print
+        print tag + ": \n\t",
+        for entry in tags[tag]:
+            print entry,
+        print
 
 
 # add one or more repos to the list
