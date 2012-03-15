@@ -14,7 +14,7 @@ dvcs_name = "git"
 dvcs_dir = "." + dvcs_name
 start_dir = os.getcwd()
 placeholder = ["REPO", "PATH"]
-gitglue_output = "GITGLUE TELLS YOU: "
+gitglue_output = "GITGLUE:"
 
 # warnings:
 exists_warning = "%s already exists"
@@ -44,16 +44,16 @@ nopath_error = "%s is not a valid path, does it exist?"
 noopt_error = "%s is not an option. Check -h or --help"
 json_error = "%s is not valid json"
 relpath_error = "%s seems to be a relative path. You can use ~/, but absolute paths are necessary."
-git_error = "\"%s\" exited with error status %s. Aborting. Is this a valid command?"
+git_error = "\"%s\" exited on %s with error status %s!"
 nolinux_error = "Can't determine home_dir. Linux only. Problem?! ;)"
 
 # cli flags:
 arg_force = False
 arg_verbose = False
-arg_git = False
+arg_git = True
 arg_quiet = False
 arg_nohook = False
-arg_short = True
+arg_short = False
 
 #TODO: specfify more than one tag, and use -a and -n as 'and' and 'not'.
 
@@ -66,9 +66,7 @@ def output_handler(output):
     global arg_git
     global arg_short
 
-    if arg_git == True:
-        print output
-    elif arg_quiet == True:
+    if arg_quiet == True:
         return
     elif arg_short == True:
         output = output.split("\n")
@@ -80,6 +78,8 @@ def output_handler(output):
                 print output[0]
             except:
                 pass
+    elif arg_git == True:
+        print output
 
 
 def exit_handler():
@@ -91,8 +91,10 @@ def exit_handler():
 
 
 def error_handler(message):
+    message_type = 'ERROR'
     if message:
-        print gitglue_output + u"ERROR – " + message
+        template = "%s %s - %s\n" % (gitglue_output, message_type , message)
+        print template
     sys.exit(1)
 
 
@@ -119,7 +121,7 @@ def usage():
      -n --nohooks      TODO Do not execute pre- and post-action hooks.
      -v --verbose      Explain everything.
      -q --quiet        Suppress WARNINGs.
-     -g --git          Print output from git or your dvcs. Overwrites default -s.
+     -s --short        Print shortened output from git or your dvcs.
      '''
     print message
 
@@ -127,15 +129,17 @@ def usage():
 def warning_handler(message):
     global arg_quiet
 
+    message_type = 'WARNING'
     if arg_quiet == False:
-        print gitglue_output +  u"WARNING – " + message
+        template = "%s %s - %s\n" % (gitglue_output, message_type , message)
+        print template
 
 
 def verbose(message):
     global arg_verbose
 
     if arg_verbose:
-        print gitglue_output + message
+        print "%s %s" % (gitglue_output, message)
 
 
 def read_repos():
@@ -376,20 +380,22 @@ def execute_cmd(cmd, repo_path, repo_name):
                 new=re.sub('REPO', repo_name, el)
                 new=re.sub('PATH', repo_path, new)
                 do.append(new)
+
+            dostr = ' '.join(do)
+            message = 'Executing "%s" in %s' % (dostr, repo_path)
+            verbose(message)
+
             p = subprocess.Popen(do, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=False)
             p.wait()
             stdout_value, stderr_value = p.communicate()
-            do = ' '.join(do)
             if p.returncode:
                 global arg_git
                 arg_git = True
                 print '\n'
                 output_handler(stderr_value)
-                message = git_error % (do, p.returncode)
+                message = git_error % (do, repo_name, p.returncode)
                 error_handler(message)
             output_handler(stdout_value)
-            message = "Executed %s in %s" % (do, repo_path)
-            verbose(message)
 
 
 # execute the action defined by rest for all repos
@@ -480,8 +486,8 @@ def parse_args():
         elif arg == "-q" or arg == "--quiet":
             arg_quiet = True
             continue
-        elif arg == "-g" or arg == "--git":
-            arg_git = True
+        elif arg == "-s" or arg == "--short":
+            arg_short = True
             continue
 
         # repos are needed now and this file should exist:
