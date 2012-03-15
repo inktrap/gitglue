@@ -391,9 +391,9 @@ def execute_cmd(cmd, repo_path, repo_name):
             if p.returncode:
                 global arg_git
                 arg_git = True
-                print '\n'
+                stderr_value = re.sub('\n+$', '', stderr_value)
                 output_handler(stderr_value)
-                message = git_error % (do, repo_name, p.returncode)
+                message = git_error % (dostr, repo_name, p.returncode)
                 error_handler(message)
             output_handler(stdout_value)
 
